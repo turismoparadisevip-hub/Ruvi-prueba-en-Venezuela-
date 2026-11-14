@@ -204,6 +204,7 @@ const server = http.createServer(async (request, response) => {
         .replace('<!--DRIVER_COUNTRY-->', venezuela ? '?pais=VE' : '')
         .replace('<div id="dashboard" hidden>', venezuela ? '<div id="dashboard" hidden><section id="driver-portrait" hidden><h3>Foto del conductor</h3><label>Subir foto <input type="file" accept="image/jpeg,image/png,image/webp"></label><p role="status"></p></section>' : '<div id="dashboard" hidden>')
         .replace('<!--DRIVER_HOME-->', venezuela ? '/conductores/?pais=VE' : '/')
+        .replace('<a href="/cuenta/?destino=negocios&amp;pais=VE">Empresa de transporte</a>', venezuela ? '' : '<a href="/cuenta/?destino=negocios&amp;pais=VE">Empresa de transporte</a>')
         .replace('<!--DRIVER_MANIFEST-->', venezuela ? '/conductores/venezuela.webmanifest' : '/manifest.webmanifest');
     }
     if (body && assetPath === '/app.js') {
