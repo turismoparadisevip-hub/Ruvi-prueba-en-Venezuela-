@@ -1,3 +1,4 @@
+const { readFileSync } = require('node:fs');
 const http = require('node:http');
 const { randomBytes, createHash, scrypt, timingSafeEqual } = require('node:crypto');
 const { promisify } = require('node:util');
@@ -60,6 +61,8 @@ function safeNext(value) {
 function accountPage(response, message = '', next = '/') {
   const venezuelaDriver = safeNext(next) === '/conductores/?pais=VE';
   const html = Buffer.from(files['/cuenta/index.html'].body, 'base64').toString()
+    .replace(/<div class="driver-step-actions"><button type="button" disabled>Continuar con Google · Próximamente<\/button><button type="button" disabled>Continuar con teléfono · Próximamente<\/button><\/div>/g, '')
+    .replace('</main>', venezuelaDriver ? '<div class="panel"><h2>Acceso con Google o teléfono</h2><button id="firebase-google" type="button">Continuar con Google</button><form id="firebase-sms"><label>Teléfono <input name="phone" type="tel" autocomplete="tel" placeholder="+58"></label><button id="firebase-send" type="button">Enviar SMS</button><label>Código <input name="code" inputmode="numeric" autocomplete="one-time-code"></label><button id="firebase-verify" type="submit">Verificar código</button></form><p id="firebase-feedback" role="status"></p></div></main><script src="/driver-firebase.js" type="module"></script>' : '</main>')
     .replace('<!--MESSAGE-->', message ? '<p role="alert">' + message + '</p>' : '')
     .replaceAll('<!--NEXT-->', safeNext(next))
     .replace('<!--ACCOUNT_HOME-->', venezuelaDriver ? '/conductores/?pais=VE' : '/')
@@ -96,9 +99,30 @@ const server = http.createServer(async (request, response) => {
       accountPage(response, '', destination + (["VE", "DO", "US", "ES", "PT", "FR", "IT", "DE", "NL", "BE", "GB", "IE", "CH", "AT", "SE", "NO", "DK", "FI", "PL", "CZ", "GR", "RO", "HU", "BG", "HR", "SK", "SI", "EE", "LV", "LT", "LU", "MT", "CY", "IS", "AL", "AD", "BA", "LI", "MC", "ME", "MK", "RS", "SM", "VA", "MD", "UA", "BY"].includes(country) ? '?pais=' + country : ''));
       return;
     }
+    if (request.method === 'GET' && url.pathname === '/driver-firebase.js') {
+      send(response, 200, readFileSync(__dirname + '/driver-firebase.js'), { 'Content-Type': 'application/javascript; charset=utf-8' });
+      return;
+    }
     if (request.method === 'POST') {
       if (request.headers.origin !== origin) { json(response, 403, { error: 'invalid' }); return; }
       const tokenHash = sessionHash(request);
+      if (url.pathname === '/auth/firebase') {
+        if (!request.headers['content-type']?.startsWith('application/json')) {
+          json(response, 415, { error: 'invalid' }); return;
+        }
+        const { idToken } = JSON.parse(await readBody(request));
+        const token = randomBytes(32).toString('hex');
+        const result = await bridge({
+          operation: tokenHash ? 'firebase-link' : 'firebase-login',
+          idToken,
+          tokenHash: tokenHash ?? hash(token),
+        });
+        send(response, result.status, JSON.stringify(result.data), {
+          'Content-Type': 'application/json',
+          ...(result.status === 200 && !tokenHash ? { 'Set-Cookie': sessionCookie(token) } : {}),
+        });
+        return;
+      }
       if (url.pathname === '/auth/logout') {
         const result = await bridge({ operation: 'logout', tokenHash });
         if (result.status !== 200) { json(response, result.status, result.data); return; }
