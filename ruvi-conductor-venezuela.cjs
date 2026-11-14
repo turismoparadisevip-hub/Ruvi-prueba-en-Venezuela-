@@ -197,10 +197,63 @@ const server = http.createServer(async (request, response) => {
       const country = url.searchParams.get('pais');
       const venezuela = !country || country === 'VE';
       body = body.toString()
+        .replace('name="name" autocomplete="name" maxlength="100" required', 'name="name" type="hidden"')
+        .replace('<label>Nombre y apellido <input name="name" type="hidden"></label>', venezuela ? '<label>Nombre <input name="firstName" autocomplete="given-name" maxlength="49" required></label><label>Apellido <input name="lastName" autocomplete="family-name" maxlength="50" required></label><input name="name" type="hidden">' : '<label>Nombre y apellido <input name="name" autocomplete="name" maxlength="100" required></label>')
+        .replace('<button class="primary" type="button" data-driver-next>Continuar</button>', venezuela ? '<button class="primary" type="button" data-driver-next>Guardar perfil</button>' : '<button class="primary" type="button" data-driver-next>Continuar</button>')
         .replace('<!--PASSENGER_LINK-->', venezuela ? '' : '<a href="https://ruvi-prueba-venezuela.onrender.com/">App de pasajeros ↗</a>')
         .replace('<!--DRIVER_COUNTRY-->', venezuela ? '?pais=VE' : '')
+        .replace('<div id="dashboard" hidden>', venezuela ? '<div id="dashboard" hidden><section id="driver-portrait" hidden><h3>Foto del conductor</h3><label>Subir foto <input type="file" accept="image/jpeg,image/png,image/webp"></label><p role="status"></p></section>' : '<div id="dashboard" hidden>')
         .replace('<!--DRIVER_HOME-->', venezuela ? '/conductores/?pais=VE' : '/')
         .replace('<!--DRIVER_MANIFEST-->', venezuela ? '/conductores/venezuela.webmanifest' : '/manifest.webmanifest');
+    }
+    if (body && assetPath === '/app.js') {
+      body = body.toString().replace('  if (approved) {', `  const portrait = byId('driver-portrait');
+  if (portrait) portrait.hidden = !approved || profile.zone !== 've';
+  if (approved) {`)
+        .replace("byId('retry').addEventListener('click', loadAccount);", `const portrait = byId('driver-portrait');
+portrait?.querySelector('input').addEventListener('change', async event => {
+  const input = event.currentTarget;
+  const file = input.files[0];
+  if (!file) return;
+  const status = portrait.querySelector('[role="status"]');
+  input.disabled = true;
+  try {
+    const image = await createImageBitmap(file);
+    const scale = Math.min(1, 480 / Math.max(image.width, image.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+    image.close();
+    await api('driver/ve-portrait', { photo: canvas.toDataURL('image/jpeg', 0.65) });
+    status.textContent = 'Foto guardada.';
+  } catch {
+    status.textContent = 'No se pudo guardar la foto. Intenta con otra imagen.';
+  } finally {
+    input.value = '';
+    input.disabled = false;
+  }
+});
+byId('retry').addEventListener('click', loadAccount);`)
+        .replace('function nextDriverStep() {', 'async function nextDriverStep() {')
+        .replace('  if (inputs.every(input => input.reportValidity())) showDriverStep(driverStep + 1);', `  if (!inputs.every(input => input.reportValidity())) return;
+  const step = driverStep;
+  const first = form.elements.firstName;
+  if (step === 1 && first) {
+    const button = driverSteps[step].querySelector('[data-driver-next]');
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+      const firstName = first.value.trim();
+      const lastName = form.elements.lastName.value.trim();
+      await api('driver/ve-onboarding', { firstName, lastName });
+      form.elements.name.value = firstName + ' ' + lastName;
+    } catch (error) {
+      showError(error);
+      return;
+    } finally { button.disabled = false; }
+  }
+  if (driverStep === step) showDriverStep(step + 1);`);
     }
     send(response, 200, body, { 'Content-Type': asset.type });
   } catch (error) {
